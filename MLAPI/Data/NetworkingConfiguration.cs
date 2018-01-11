@@ -12,7 +12,9 @@ namespace MLAPI
         public SortedDictionary<string, QosType> Channels = new SortedDictionary<string, QosType>();
         public List<string> MessageTypes = new List<string>();
         public List<string> PassthroughMessageTypes = new List<string>();
+        public List<string> EncryptionMessageTypes = new List<string>();
         internal HashSet<ushort> RegisteredPassthroughMessageTypes = new HashSet<ushort>();
+        internal HashSet<ushort> RegisteredEncryptionMessageTypes = new HashSet<ushort>();
         public int MessageBufferSize = 65535;
         public int MaxMessagesPerFrame = 150;
         public int MaxConnections = 100;
@@ -25,10 +27,11 @@ namespace MLAPI
         public bool HandleObjectSpawning = true;
         //TODO
         public bool CompressMessages = false;
-        //Should only be used for dedicated servers and will require the servers RSA keypair being hard coded into clients in order to exchange a AES key
-        //TODO
-        public bool EncryptMessages = false;
         public bool AllowPassthroughMessages = true;
+        public bool EnableDiffieHellman = true;
+        public bool DenyUntrustedKeys = false;
+        public RSAParameters ServerPublicKey;
+        public RSAParameters ServerPrivateKey;
 
         //Cached config hash
         private byte[] ConfigHash = null;
@@ -59,7 +62,7 @@ namespace MLAPI
                     }
                     writer.Write(HandleObjectSpawning);
                     writer.Write(CompressMessages);
-                    writer.Write(EncryptMessages);
+                    writer.Write(EnableDiffieHellman);
                     writer.Write(AllowPassthroughMessages);
                 }
                 using(SHA256Managed sha256 = new SHA256Managed())
