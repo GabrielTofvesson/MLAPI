@@ -298,7 +298,7 @@ namespace MLAPI
 
         //Receive stuff
         internal int hostId;
-        private int clientId;
+        private int connectionId;
         private int channelId;
         private int receivedSize;
         private byte error;
@@ -324,14 +324,14 @@ namespace MLAPI
                     do
                     {
                         processedEvents++;
-                        eventType = NetworkTransport.Receive(out hostId, out clientId, out channelId, messageBuffer, messageBuffer.Length, out receivedSize, out error);
+                        eventType = NetworkTransport.Receive(out hostId, out connectionId, out channelId, messageBuffer, messageBuffer.Length, out receivedSize, out error);
                         NetworkError networkError = (NetworkError)error;
                         if (networkError == NetworkError.Timeout)
                         {
                             //Client timed out. 
                             if (isServer)
                             {
-                                OnClientDisconnect(clientId);
+                                OnClientDisconnect(ClientIdManager.GetClientId(hostId, connectionId));
                                 return;
                             }
                         }
@@ -346,6 +346,7 @@ namespace MLAPI
                             case NetworkEventType.ConnectEvent:
                                 if (isServer)
                                 {
+                                    int clientId = ClientIdManager.AddClientId(connectionId, hostId);
                                     pendingClients.Add(clientId);
                                     StartCoroutine(ApprovalTimeout(clientId));
                                 }
@@ -366,16 +367,19 @@ namespace MLAPI
                                                 writer.Write(NetworkConfig.ConnectionData);
                                             }
                                         }
-                                        Send(clientId, "MLAPI_CONNECTION_REQUEST", "MLAPI_INTERNAL", writeStream.GetBuffer());
+                                        Send(connectionId, "MLAPI_CONNECTION_REQUEST", "MLAPI_INTERNAL", writeStream.GetBuffer());
                                     }
                                 }
                                 break;
                             case NetworkEventType.DataEvent:
-                                HandleIncomingData(clientId, messageBuffer, channelId);
+                                if (isServer)
+                                    HandleIncomingData(ClientIdManager.GetClientId(hostId, connectionId), messageBuffer, channelId);
+                                else
+                                    HandleIncomingData(connectionId, messageBuffer, channelId);
                                 break;
                             case NetworkEventType.DisconnectEvent:
                                 if (isServer)
-                                    OnClientDisconnect(clientId);
+                                    OnClientDisconnect(ClientIdManager.GetClientId(hostId, connectionId));
                                 break;
                         }
                         // Only do another iteration if: there are no more messages AND (there is no limit to max events or we have processed less than the maximum)
@@ -850,7 +854,9 @@ namespace MLAPI
                     writer.Write((ushort)data.Length);
                     writer.Write(data);
                 }
-                NetworkTransport.QueueMessageForSending(hostId, targetId, channelId, stream.GetBuffer(), sizeOfStream, out error);
+                NetworkTransport.QueueMessageForSending(ClientIdManager.GetClientIdKey(targetId).hostId, 
+                                                        ClientIdManager.GetClientIdKey(targetId).connectionId, 
+                                                        channelId, stream.GetBuffer(), sizeOfStream, out error);
             }
         }
 
@@ -898,7 +904,10 @@ namespace MLAPI
                 }
                 if (isPassthrough)
                     clientId = serverClientId;
-                NetworkTransport.QueueMessageForSending(hostId, clientId, MessageManager.channels[channelName], stream.GetBuffer(), sizeOfStream, out error);
+                NetworkTransport.QueueMessageForSending(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                                        ClientIdManager.GetClientIdKey(clientId).connectionId, 
+                                                        MessageManager.channels[channelName], stream.GetBuffer(), 
+                                                        sizeOfStream, out error);
             }
         }
 
@@ -935,7 +944,9 @@ namespace MLAPI
                         //Client trying to send data to host
                         clientId = serverClientId;
                     }
-                    NetworkTransport.QueueMessageForSending(hostId, clientId, channel, stream.GetBuffer(), sizeOfStream, out error);
+                    NetworkTransport.QueueMessageForSending(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                                            ClientIdManager.GetClientIdKey(clientId).connectionId, 
+                                                            channel, stream.GetBuffer(), sizeOfStream, out error);
                 }
             }
         }
@@ -974,7 +985,9 @@ namespace MLAPI
                         //Client trying to send data to host
                         clientId = serverClientId;
                     }
-                    NetworkTransport.QueueMessageForSending(hostId, clientId, channel, stream.GetBuffer(), sizeOfStream, out error);
+                    NetworkTransport.QueueMessageForSending(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                                            ClientIdManager.GetClientIdKey(clientId).connectionId, 
+                                                            channel, stream.GetBuffer(), sizeOfStream, out error);
                 }
             }
         }
@@ -1013,7 +1026,9 @@ namespace MLAPI
                         //Client trying to send data to host
                         clientId = serverClientId;
                     }
-                    NetworkTransport.QueueMessageForSending(hostId, clientId, channel, stream.GetBuffer(), sizeOfStream, out error);
+                    NetworkTransport.QueueMessageForSending(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                                            ClientIdManager.GetClientIdKey(clientId).connectionId, 
+                                                            channel, stream.GetBuffer(), sizeOfStream, out error);
                     
                 }
             }
@@ -1055,7 +1070,9 @@ namespace MLAPI
                         //Client trying to send data to host
                         clientId = serverClientId;
                     }
-                    NetworkTransport.QueueMessageForSending(hostId, clientId, channel, stream.GetBuffer(), sizeOfStream, out error);
+                    NetworkTransport.QueueMessageForSending(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                                            ClientIdManager.GetClientIdKey(clientId).connectionId, 
+                                                            channel, stream.GetBuffer(), sizeOfStream, out error);
                 }
             }
         }
@@ -1068,7 +1085,9 @@ namespace MLAPI
                 pendingClients.Remove(clientId);
             if (connectedClients.ContainsKey(clientId))
                 connectedClients.Remove(clientId);
-            NetworkTransport.Disconnect(hostId, clientId, out error);          
+            NetworkTransport.Disconnect(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                        ClientIdManager.GetClientIdKey(clientId).connectionId, out error); 
+            ClientIdManager.ReleaseClientId(clientId);
         }
 
         private void OnClientDisconnect(int clientId)
@@ -1092,6 +1111,7 @@ namespace MLAPI
 
             if (isServer)
             {
+                ClientIdManager.ReleaseClientId(clientId);
                 using (MemoryStream stream = new MemoryStream(4))
                 {
                     using (BinaryWriter writer = new BinaryWriter(stream))
@@ -1215,7 +1235,8 @@ namespace MLAPI
             {
                 if (pendingClients.Contains(clientId))
                     pendingClients.Remove(clientId);
-                NetworkTransport.Disconnect(hostId, clientId, out error);
+                NetworkTransport.Disconnect(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                            ClientIdManager.GetClientIdKey(clientId).connectionId, out error);
             }
         }
     }
