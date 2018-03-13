@@ -38,7 +38,8 @@ namespace MLAPI.NetworkingManagerComponents
                 Debug.LogWarning("MLAPI: Lag compensation simulations are only to be ran on the server.");
                 return;
             }
-            float milisecondsDelay = NetworkTransport.GetCurrentRTT(NetworkingManager.singleton.hostId, clientId, out error) / 2f;
+            float milisecondsDelay = NetworkTransport.GetCurrentRTT(ClientIdManager.GetClientIdKey(clientId).hostId, 
+                                                                    ClientIdManager.GetClientIdKey(clientId).connectionId, out error) / 2f;
             Simulate(milisecondsDelay * 1000f, action);
         }
 

@@ -192,43 +192,38 @@ namespace MLAPI
                 }
             }
             HostTopology hostTopology = new HostTopology(cConfig, NetworkConfig.MaxConnections);
-            hostId = NetworkTransport.AddHost(hostTopology, NetworkConfig.Port);
+            if (netConfig.UseUDPListener)
+                hostId = NetworkTransport.AddHost(hostTopology, NetworkConfig.UDPPort);
+            if (netConfig.UseWebsocketListener)
+                hostId = NetworkTransport.AddWebsocketHost(hostTopology, NetworkConfig.WebsocketPort);
             isServer = true;
             isClient = false;
             isListening = true;
         }
 
-        public void StartClient(NetworkingConfiguration netConfig)
+        public void StartClient(NetworkingConfiguration netConfig, bool websocket = false)
         {
             ConnectionConfig cConfig = Init(netConfig);
             HostTopology hostTopology = new HostTopology(cConfig, NetworkConfig.MaxConnections);
-            hostId =  NetworkTransport.AddHost(hostTopology, 0, null);
+            if (!websocket)
+                hostId = NetworkTransport.AddHost(hostTopology, 0, null);
+            else
+                hostId = NetworkTransport.AddWebsocketHost(hostTopology, 0, null);
 
             isServer = false;
             isClient = true;
             isListening = true;
-            serverClientId = NetworkTransport.Connect(hostId, NetworkConfig.Address, NetworkConfig.Port, 0, out error);
+            int port = websocket ? NetworkConfig.WebsocketPort : NetworkConfig.UDPPort;
+            serverClientId = NetworkTransport.Connect(hostId, NetworkConfig.Address, port, 0, out error);
         }
 
         public void StopServer()
         {
-            HashSet<int> sentIds = new HashSet<int>();
             //Don't know if I have to disconnect the clients. I'm assuming the NetworkTransport does all the cleaning on shtudown. But this way the clients get a disconnect message from server (so long it does't get lost)
             foreach (KeyValuePair<int, NetworkedClient> pair in connectedClients)
             {
-                if(!sentIds.Contains(pair.Key))
-                {
-                    sentIds.Add(pair.Key);
-                    NetworkTransport.Disconnect(hostId, pair.Key, out error);
-                }
-            }
-            foreach (int clientId in pendingClients)
-            {
-                if (!sentIds.Contains(clientId))
-                {
-                    sentIds.Add(clientId);
-                    NetworkTransport.Disconnect(hostId, clientId, out error);
-                }
+                NetworkTransport.Disconnect(ClientIdManager.GetClientIdKey(pair.Key).hostId, 
+                                            ClientIdManager.GetClientIdKey(pair.Key).connectionId, out error);
             }
             Shutdown();
         }
@@ -256,7 +251,18 @@ namespace MLAPI
                 }
             }
             HostTopology hostTopology = new HostTopology(cConfig, NetworkConfig.MaxConnections);
-            hostId = NetworkTransport.AddHost(hostTopology, NetworkConfig.Port, null);
+            if (netConfig.UseWebsocketListener)
+            {
+                hostId = NetworkTransport.AddWebsocketHost(hostTopology, NetworkConfig.WebsocketPort);
+                ClientIdManager.clientIdToKey.Add(-1, new ClientIdKey(hostId, -1));
+                ClientIdManager.keyToClientId.Add(new ClientIdKey(hostId, -1), -1);
+            }
+            if (netConfig.UseUDPListener)
+            {
+                hostId = NetworkTransport.AddHost(hostTopology, NetworkConfig.UDPPort);
+                ClientIdManager.clientIdToKey.Add(-1, new ClientIdKey(hostId, -1));
+                ClientIdManager.keyToClientId.Add(new ClientIdKey(hostId, -1), -1);
+            }
             isServer = true;
             isClient = true;
             isListening = true;
@@ -297,7 +303,7 @@ namespace MLAPI
         }
 
         //Receive stuff
-        internal int hostId;
+        private int hostId;
         private int connectionId;
         private int channelId;
         private int receivedSize;
@@ -313,7 +319,8 @@ namespace MLAPI
                 {
                     foreach (KeyValuePair<int, NetworkedClient> pair in connectedClients)
                     {
-                        NetworkTransport.SendQueuedMessages(hostId, pair.Key, out error);
+                        NetworkTransport.SendQueuedMessages(ClientIdManager.GetClientIdKey(pair.Key).hostId, 
+                                                            ClientIdManager.GetClientIdKey(pair.Key).connectionId, out error);
                     }
                     lastSendTickTime = Time.time;
                 }
@@ -324,6 +331,7 @@ namespace MLAPI
                     do
                     {
                         processedEvents++;
+                        int hostId;
                         eventType = NetworkTransport.Receive(out hostId, out connectionId, out channelId, messageBuffer, messageBuffer.Length, out receivedSize, out error);
                         NetworkError networkError = (NetworkError)error;
                         if (networkError == NetworkError.Timeout)

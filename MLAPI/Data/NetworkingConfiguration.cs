@@ -20,10 +20,13 @@ namespace MLAPI
         public int SendTickrate = 64;
         public int EventTickrate = 64;
         public int MaxConnections = 100;
-        public int Port = 7777;
+        public int UDPPort = 7777;
+        public int WebsocketPort = 7778;
         public string Address = "127.0.0.1";
         public int ClientConnectionBufferTimeout = 10;
         public bool ConnectionApproval = false;
+        public bool UseUDPListener = true;
+        public bool UseWebsocketListener = false;
         public Action<byte[], int, Action<int, bool>> ConnectionApprovalCallback = null;
         public byte[] ConnectionData = new byte[0];
         public float SecondsHistory = 5;
