@@ -319,6 +319,9 @@ namespace MLAPI
                 {
                     foreach (KeyValuePair<int, NetworkedClient> pair in connectedClients)
                     {
+                        //Don't send messages to the -1 client id. That's the host
+                        if (pair.Key == -1)
+                            continue;
                         NetworkTransport.SendQueuedMessages(ClientIdManager.GetClientIdKey(pair.Key).hostId, 
                                                             ClientIdManager.GetClientIdKey(pair.Key).connectionId, out error);
                     }
